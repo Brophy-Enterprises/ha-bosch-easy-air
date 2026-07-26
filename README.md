@@ -6,7 +6,7 @@ This project is not affiliated with, endorsed by, or supported by Bosch.
 
 ## Status
 
-This repository is being prepared as the standalone home for the `bosch_easyair` custom integration. The integration code is expected to live under:
+This repository is the standalone home for the `bosch_easyair` custom integration. The integration code lives under:
 
 ```text
 custom_components/bosch_easyair/
@@ -15,8 +15,6 @@ custom_components/bosch_easyair/
 The first implementation targets the Bosch EasyAir / `smart-climate-ids` cloud API used by the BCC110. Local LAN control is not implemented.
 
 ## Installation
-
-These instructions apply once `custom_components/bosch_easyair/manifest.json` has been added to this repository.
 
 ### HACS custom repository
 

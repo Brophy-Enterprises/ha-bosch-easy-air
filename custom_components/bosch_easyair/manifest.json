@@ -1,0 +1,12 @@
+{
+  "domain": "bosch_easyair",
+  "name": "Bosch EasyAir",
+  "documentation": "https://github.com/Brophy-Enterprises/ha-bosch-easy-air",
+  "issue_tracker": "https://github.com/Brophy-Enterprises/ha-bosch-easy-air/issues",
+  "codeowners": ["@Brophy-Enterprises"],
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "loggers": ["custom_components.bosch_easyair"],
+  "version": "0.1.0"
+}

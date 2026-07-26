@@ -1,0 +1,52 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bosch EasyAir",
+        "description": "Choose a setup method. Browser login is recommended; manual setup is only for tokens captured from an EasyAir session.",
+        "menu_options": {
+          "browser_login": "Sign in with Bosch/SingleKey",
+          "manual": "Manual config with tokens"
+        }
+      },
+      "browser_login": {
+        "title": "Sign in with Bosch/SingleKey",
+        "description": "Copy the Bosch/SingleKey login URL, open it in your browser, sign in, and paste the final `idsmobileapp://?...` redirect URL or its `code` value below.",
+        "data": {
+          "authorization_url": "Bosch/SingleKey login URL",
+          "authorization_response": "Authorization redirect URL or code"
+        }
+      },
+      "manual": {
+        "title": "Manual config with tokens",
+        "description": "Use this only if you already captured tokens from a valid EasyAir session.",
+        "data": {
+          "access_token": "Access token",
+          "refresh_token": "Refresh token"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Bosch EasyAir",
+        "description": "The stored EasyAir token is no longer valid. Choose how to re-authenticate.",
+        "menu_options": {
+          "browser_login": "Sign in with Bosch/SingleKey",
+          "manual": "Manual config with tokens"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "invalid_authorization_response": "Invalid authorization response",
+      "missing_authorization_response": "Enter the authorization redirect URL or code",
+      "missing_auth": "Enter an access token",
+      "no_devices": "No EasyAir thermostats were found",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This EasyAir thermostat is already configured",
+      "reauth_successful": "Re-authentication was successful",
+      "wrong_account": "The re-authenticated account does not match the configured EasyAir thermostat"
+    }
+  }
+}
