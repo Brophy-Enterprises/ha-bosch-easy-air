@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a problem with the Bosch EasyAir integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please do not include access tokens, refresh tokens, HAR files, or Home Assistant `.storage` files.
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.7.0"
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "v0.1.0 or commit SHA"
+    validations:
+      required: false
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant `custom_components.bosch_easyair` logs with secrets removed.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,25 @@
+name: HACS
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  validate:
+    name: Validate with HACS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate integration
+        if: ${{ hashFiles('custom_components/bosch_easyair/manifest.json') != '' }}
+        uses: hacs/action@main
+        with:
+          category: integration
+
+      - name: Skip until integration is added
+        if: ${{ hashFiles('custom_components/bosch_easyair/manifest.json') == '' }}
+        run: echo "Skipping HACS validation until custom_components/bosch_easyair/manifest.json exists."
