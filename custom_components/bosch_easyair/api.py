@@ -646,7 +646,18 @@ def _temperature_unit(raw: Mapping[str, Any]) -> UnitOfTemperature:
 
 
 def _hvac_action(raw: Mapping[str, Any], hvac_mode: str | None) -> str | None:
-    """Infer HVAC action from BCC status fields."""
+    """Infer HVAC action from BCC status fields.
+
+    Returns ``None`` when the equipment is demonstrably running but the mode
+    cannot say *what* is running -- ``auto`` (the normal HEAT_COOL state for a
+    BCC110) or an unrecognized mode. No captured field distinguishes a heat
+    call from a cool call in auto, and reporting ``idle`` there would contradict
+    the ``power``/``stage`` evidence this function just checked, so an unknown
+    action is reported instead. ``fanstatus`` is still trusted as a positive
+    signal on the way past, since it is the one field that names what is
+    running; if a capture ever shows it set during a heat/cool call it should
+    move below this fallback rather than above it.
+    """
     if hvac_mode == "off":
         return "off"
     power = _as_string(raw.get("power"))
@@ -660,7 +671,7 @@ def _hvac_action(raw: Mapping[str, Any], hvac_mode: str | None) -> str | None:
     fan_status = _as_string(raw.get("fanstatus"))
     if fan_status == "1":
         return "fan"
-    return "idle"
+    return None
 
 
 def _as_string(value: Any) -> str | None:

@@ -14,6 +14,28 @@ custom_components/bosch_easyair/
 
 The first implementation targets the Bosch EasyAir / `smart-climate-ids` cloud API used by the BCC110. Local LAN control is not implemented.
 
+### HACS validation is blocked until this repository is public
+
+The `HACS` workflow will keep failing while this repository is private, and no
+change inside it can fix that. HACS's `hacsjson` and `integration_manifest`
+checks read `hacs.json` and `custom_components/bosch_easyair/manifest.json` from
+`raw.githubusercontent.com` with no authorization header, so on a private
+repository both fetches 404, the content arrives as `None`, and both checks fail
+with `expected a dictionary. Got None` / `invalid 'hacs.json' file`. The files
+themselves are valid — `render_readme` is still in the current
+`HACS_MANIFEST_JSON_SCHEMA`.
+
+Remaining HACS requirements, for whoever publishes this:
+
+- **Visibility** — make the repository public (fixes `hacsjson` and
+  `integration_manifest`).
+- **Topics** — set (`home-assistant`, `hacs`, `bosch`, `thermostat`, `climate`, …).
+- **Brands** — still outstanding. Either add
+  `custom_components/bosch_easyair/brand/icon.png` (checked against the git tree,
+  so it works even while private) or get `bosch_easyair` listed in
+  [home-assistant/brands](https://github.com/home-assistant/brands). No brand
+  artwork has been chosen yet, so this is left to the repository owner.
+
 ## Installation
 
 ### HACS custom repository

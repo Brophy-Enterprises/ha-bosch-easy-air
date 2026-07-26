@@ -148,16 +148,21 @@ class BoschEasyAirClimate(
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
-        """Return supported climate features."""
-        device = self._device
+        """Return supported climate features.
+
+        A single target temperature is only writable when the mode says which
+        half of the BCC setpoint pair it belongs to, so ``heat``/``cool`` get
+        TARGET_TEMPERATURE and everything else -- ``auto``, and any mode that
+        did not parse -- gets TARGET_TEMPERATURE_RANGE. Keying the fallback on
+        the mode rather than on whether the setpoints parsed matters: a ``temp``
+        payload that failed to split would otherwise render a single-target
+        slider in auto mode whose every write is rejected by
+        ``async_set_temperature``, leaving a control that can never succeed.
+        """
         features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
-        if (
-            device.hvac_mode == "auto"
-            and device.target_temperature_low is not None
-            and device.target_temperature_high is not None
-        ):
-            return features | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        return features | ClimateEntityFeature.TARGET_TEMPERATURE
+        if self._device.hvac_mode in ("heat", "cool"):
+            return features | ClimateEntityFeature.TARGET_TEMPERATURE
+        return features | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
 
     @property
     def temperature_unit(self):

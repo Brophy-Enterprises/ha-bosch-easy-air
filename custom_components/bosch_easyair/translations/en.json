@@ -44,9 +44,10 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This EasyAir thermostat is already configured",
+      "already_configured": "This EasyAir account is already configured",
+      "reauth_entry_missing": "The EasyAir configuration entry being re-authenticated no longer exists",
       "reauth_successful": "Re-authentication was successful",
-      "wrong_account": "The re-authenticated account does not match the configured EasyAir thermostat"
+      "wrong_account": "The re-authenticated account does not match the configured EasyAir account"
     }
   }
 }

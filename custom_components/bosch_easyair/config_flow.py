@@ -47,6 +47,20 @@ ACCOUNT_ID_PREFIX = "account:"
 DEVICES_ID_PREFIX = "devices:"
 
 
+class NoThermostatsFound(Exception):
+    """Raised when credentials are valid but the account has no thermostats.
+
+    Dedicated types rather than a bare ``ValueError``: the flow's handlers wrap
+    the whole API/parse stack, so mapping ``ValueError`` to a user-facing error
+    string would also catch an incidental conversion or JSON-decode failure
+    from deeper down and misreport it.
+    """
+
+
+class InvalidAuthorizationResponse(Exception):
+    """Raised when a pasted SingleKey redirect URL cannot be used."""
+
+
 class AccountIdentity(NamedTuple):
     """Identity of the EasyAir account behind a set of credentials."""
 
@@ -96,7 +110,7 @@ async def _validate_input(hass: HomeAssistant, data: dict[str, Any]) -> AccountI
     )
     thermostats = await client.async_get_thermostats()
     if not thermostats:
-        raise ValueError("No EasyAir thermostats found")
+        raise NoThermostatsFound("No EasyAir thermostats found")
 
     device_ids = sorted({thermostat.id for thermostat in thermostats})
     devices_id = f"{DEVICES_ID_PREFIX}{','.join(device_ids)}"
@@ -148,10 +162,10 @@ class BoschEasyAirConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Let the user choose the setup method."""
         return self.async_show_menu(
             step_id="user",
-            menu_options={
-                "browser_login": "Sign in with Bosch/SingleKey",
-                "manual": "Manual config with tokens",
-            },
+            # A list lets HA resolve the labels from strings.json/translations;
+            # the dict form would use the values as literal English labels and
+            # leave the menu_options blocks in strings.json unused.
+            menu_options=["browser_login", "manual"],
         )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]):
@@ -159,6 +173,11 @@ class BoschEasyAirConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
+        if self._reauth_entry is None:
+            # Without the entry, _async_create_validated_entry would take the
+            # non-reauth branch and create a *second* entry for this account
+            # instead of updating the one that needs new tokens.
+            return self.async_abort(reason="reauth_entry_missing")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -167,10 +186,10 @@ class BoschEasyAirConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Let the user choose how to re-authenticate."""
         return self.async_show_menu(
             step_id="reauth_confirm",
-            menu_options={
-                "browser_login": "Sign in with Bosch/SingleKey",
-                "manual": "Manual config with tokens",
-            },
+            # A list lets HA resolve the labels from strings.json/translations;
+            # the dict form would use the values as literal English labels and
+            # leave the menu_options blocks in strings.json unused.
+            menu_options=["browser_login", "manual"],
         )
 
     async def async_step_browser_login(
@@ -194,7 +213,7 @@ class BoschEasyAirConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._oauth_state or "",
                         self._oauth_code_verifier or "",
                     )
-                except ValueError:
+                except InvalidAuthorizationResponse:
                     errors["base"] = "invalid_authorization_response"
                 except EasyAirAuthError:
                     self._reset_oauth_request()
@@ -244,7 +263,7 @@ class BoschEasyAirConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             identity = await _validate_input(self.hass, data)
         except EasyAirAuthError:
             errors["base"] = "invalid_auth"
-        except ValueError:
+        except NoThermostatsFound:
             errors["base"] = "no_devices"
         except EasyAirError as err:
             _LOGGER.debug("Unable to connect to EasyAir: %s", err)
@@ -373,7 +392,7 @@ def _authorization_code_from_response(
 
     code = _clean_input(authorization_response)
     if not code:
-        raise ValueError("Missing authorization code")
+        raise InvalidAuthorizationResponse("Missing authorization code")
     return code
 
 
@@ -389,7 +408,7 @@ def _verify_oauth_state(query: dict[str, list[str]], expected_state: str) -> Non
         return
     state = _first_query_value(query, "state")
     if state != expected_state:
-        raise ValueError("OAuth state mismatch")
+        raise InvalidAuthorizationResponse("OAuth state mismatch")
 
 
 def _authorization_response_from_url_field(value: Any) -> str | None:
