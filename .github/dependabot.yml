@@ -2,5 +2,7 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
+    # Dependabot only updates pinned/versioned actions refs. Branch refs such as
+    # hacs/action@main and home-assistant/actions/hassfest@master are not bumped.
     schedule:
       interval: "weekly"
