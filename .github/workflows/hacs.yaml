@@ -24,6 +24,3 @@ jobs:
         with:
           category: integration
 
-      - name: Skip until integration is added
-        if: ${{ hashFiles('custom_components/*/manifest.json') == '' }}
-        run: echo "Skipping HACS validation until custom_components/*/manifest.json exists."
