@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bosch EasyAir Auth Helper</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>EasyAir Auth Helper</h1>
+        <p id="status">Waiting for an EasyAir redirect.</p>
+      </header>
+
+      <section id="capture" hidden>
+        <dl>
+          <div>
+            <dt>Captured</dt>
+            <dd id="capturedAt"></dd>
+          </div>
+          <div>
+            <dt>Copied</dt>
+            <dd id="copied"></dd>
+          </div>
+          <div>
+            <dt>Code</dt>
+            <dd><code id="code"></code></dd>
+          </div>
+          <div>
+            <dt>State</dt>
+            <dd><code id="state"></code></dd>
+          </div>
+        </dl>
+
+        <label for="redirectUrl">Redirect URL</label>
+        <textarea id="redirectUrl" readonly></textarea>
+
+        <div class="actions">
+          <button id="copyRedirect" type="button">Copy redirect URL</button>
+          <button id="copyCode" type="button">Copy code</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
