@@ -14,13 +14,15 @@ from custom_components.bosch_easyair.api import EasyAirClient, EasyAirThermostat
 class RecordingEasyAirClient(EasyAirClient):
     """EasyAir client that records requests without sending them."""
 
-    def __init__(self) -> None:
+    def __init__(self, response: Any = None) -> None:
         """Initialize the request recorder."""
         self.request: tuple[str, str, dict[str, Any]] | None = None
+        self.response = response
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> None:
+    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         """Record a request."""
         self.request = (method, path, kwargs)
+        return self.response
 
 
 def _thermostat() -> EasyAirThermostat:
@@ -75,6 +77,39 @@ class SetTemperatureTest(IsolatedAsyncioTestCase):
                         "temp": "75.0-65.0",
                         "hold": "1",
                         "timestamp": "1783835632458",
+                    }
+                },
+            ),
+        )
+
+
+class SetHvacModeTest(IsolatedAsyncioTestCase):
+    """Verify the captured iOS change-mode contract."""
+
+    async def test_returns_mode_confirmed_by_response(self) -> None:
+        """Normalize and return the mode applied by the API."""
+        client = RecordingEasyAirClient(
+            {"message": "Operation succeed", "mode": "2", "distr": "0"}
+        )
+
+        with patch(
+            "custom_components.bosch_easyair.api._timestamp_ms",
+            return_value="1783835637946",
+        ):
+            mode = await client.async_set_hvac_mode("001122aabbcc", "heat")
+
+        self.assertEqual(mode, "heat")
+        self.assertEqual(
+            client.request,
+            (
+                "POST",
+                "/control/change_mode",
+                {
+                    "json": {
+                        "device_id": "001122aabbcc",
+                        "mode": "2",
+                        "distr": "0",
+                        "timestamp": "1783835637946",
                     }
                 },
             ),
