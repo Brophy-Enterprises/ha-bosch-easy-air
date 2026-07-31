@@ -64,11 +64,10 @@ BCC110 notes from captured traffic:
 - `gatewayId` is MAC-shaped and is used as `device_id` for control calls.
 - Mode values observed: `0=off`, `1=cool`, `2=heat`, `3=auto`.
 - The BCC `temp` field is formatted as `<cool setpoint>-<heat setpoint>`.
-  Reads accept integers and decimals. Writes emit whole degrees without a
-  decimal part (`"78-68"`), which is what a Fahrenheit unit produces —
-  **unconfirmed against the capture**, which recorded the field shape but not
-  the write-direction format. If the cloud rejects or coerces a setpoint,
-  check `_format_temp_pair` in `api.py` first.
+  Reads accept integers and decimals. Writes match the captured EasyAir app
+  request by emitting exactly one decimal place, including for whole degrees
+  (`"75.0-65.0"`). The API rejects integer-looking pairs such as `"75-65"` as
+  an invalid request body.
 
 The only module that should need cloud protocol changes is `api.py`.
 

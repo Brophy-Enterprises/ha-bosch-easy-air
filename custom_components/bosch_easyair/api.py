@@ -620,20 +620,15 @@ def _split_temp_pair(value: Any) -> tuple[float | None, float | None]:
 def _format_temp_pair(cool_setpoint: float, heat_setpoint: float) -> str:
     """Format BCC cool and heat setpoints.
 
-    Whole degrees are written without a decimal part (``"78-68"``), which is
-    what a Fahrenheit BCC110 produces and the shape the captured traffic is
-    believed to use; a fractional setpoint still round-trips through
-    :func:`_split_temp_pair` as ``"21.5-19.0"``. The write-direction format was
-    never confirmed against a capture, so if the cloud rejects or coerces a
-    setpoint this is the first thing to check.
+    The EasyAir app writes both values with exactly one decimal place, including
+    whole Fahrenheit degrees (for example, ``"75.0-65.0"``). The API validates
+    that wire format and rejects integer-looking pairs such as ``"75-65"``.
     """
     return f"{_format_temp(cool_setpoint)}-{_format_temp(heat_setpoint)}"
 
 
 def _format_temp(setpoint: float) -> str:
-    """Format a single BCC setpoint, dropping a redundant ``.0``."""
-    if float(setpoint).is_integer():
-        return str(int(setpoint))
+    """Format a single BCC setpoint with the app's one decimal place."""
     return f"{setpoint:.1f}"
 
 
