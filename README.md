@@ -28,31 +28,40 @@ The first implementation targets the Bosch EasyAir / `smart-climate-ids` cloud A
 6. Restart Home Assistant.
 7. Go to **Settings > Devices & services > Add integration** and add **Bosch EasyAir**.
 
-### Manual install
-
-Copy the integration folder into your Home Assistant config directory:
-
-```text
-custom_components/bosch_easyair/
-```
-
-The final path should look like:
-
-```text
-<home-assistant-config>/custom_components/bosch_easyair/manifest.json
-```
-
-Restart Home Assistant after copying files.
-
 ## Authentication
 
-The EasyAir mobile app uses Bosch/SingleKey sign-in through Cognito and redirects to the registered mobile app URI:
+After tapping **Add integration** and selecting **Bosch EasyAir** you will be presented with the following dialog:
 
-```text
-idsmobileapp://
-```
+![Setup Method Selection Dialog Screenshot](resources/images/SetupMethodSelectionDialog.png)
 
-Because Home Assistant cannot receive that app callback directly, setup uses a browser login plus a paste-back step for the final redirect URL/code. A manual token setup path may also be available for development and troubleshooting.
+### Browser Login (Recommended)
+
+Home Assistant can not directly recieve the OAuth callback from Bosch, so you are required to sign in via your browser and then copy & paste the final redirect URL/code back into the setup flow. 
+There is also a basic browser extension available to make capturing this URL even easier, if you'd like.
+
+1. Copy the provided login link and open it in your browser of choice. 
+2. Enter your credentials for your Bosch Account
+3. After successfully logging in, the browser will attempt to redirect to an "invalid" URL (should begin with `idsmobileapp://`). 
+4. Copy that URL and paste it in to the setup dialog to finish the authorization flow. 
+
+*Note:* You might need to open the web inspector to properly capture the redirect URL (or use the provided browser extension).
+
+![Browser Login Setup Dialog Screenshot](resources/images/BrowserLoginDialog.png)
+
+### Manual Token Entry (Advanced / Debugging)
+
+If you are a more advanced user, or just happen to have your Access token (and optional Refresh token) handy, you can use the Manual Token Entry Setup flow. 
+
+![Manual Token Setup Dialog Screenshot](resources/images/ManualTokenConfigDialog.png)
+
+## Authentication Redirect URL Browser Extension
+
+For your convenience, there is a browser extension in this repo that can be used to easily extract the redirect URL/code while logging in via the browser flow. 
+
+It is not currently listed on an official app store, so you would need to install it manually yourself from this repo for now. 
+
+[Instructions can be found here](browser-extension/easyair-auth-helper/README.md)
+
 
 ## Attribution
 
