@@ -1,0 +1,288 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (vX.Y.Z)"
+        required: true
+        type: string
+      branch:
+        description: "Branch to release"
+        required: true
+        default: main
+        type: string
+  pull_request:
+    types: [closed]
+
+jobs:
+  prepare:
+    name: Prepare release PR
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: prepare-release-${{ inputs.branch }}
+      cancel-in-progress: false
+    env:
+      RELEASE_BRANCH: ${{ inputs.branch }}
+      RELEASE_VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must use the format vX.Y.Z (for example, v1.0.1)."
+            exit 1
+          fi
+
+          if ! git check-ref-format --branch "$RELEASE_BRANCH" > /dev/null; then
+            echo "::error::$RELEASE_BRANCH is not a valid branch name."
+            exit 1
+          fi
+
+      - name: Generate release App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Check out release target
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Verify release is new
+        shell: bash
+        run: |
+          release_pr_branch="release/$RELEASE_VERSION"
+
+          git fetch --force --tags origin
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_VERSION"; then
+            echo "::error::Tag $RELEASE_VERSION already exists."
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --heads origin \
+            "refs/heads/$release_pr_branch" > /dev/null 2>&1; then
+            echo "::error::Branch $release_pr_branch already exists."
+            exit 1
+          fi
+
+      - name: Bump manifest version
+        shell: bash
+        run: |
+          manifest="custom_components/bosch_easyair/manifest.json"
+          version_without_prefix="${RELEASE_VERSION#v}"
+          temporary_manifest="$(mktemp)"
+
+          jq --arg version "$version_without_prefix" \
+            '.version = $version' "$manifest" > "$temporary_manifest"
+          mv "$temporary_manifest" "$manifest"
+
+      - name: Commit and push release branch
+        shell: bash
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          release_pr_branch="release/$RELEASE_VERSION"
+          app_user_id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq '.id')"
+
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${app_user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- custom_components/bosch_easyair/manifest.json; then
+            echo "::error::The manifest is already at ${RELEASE_VERSION#v}."
+            exit 1
+          fi
+
+          git switch --create "$release_pr_branch"
+          git add custom_components/bosch_easyair/manifest.json
+          git commit -m "Bump version to $RELEASE_VERSION"
+          git push --set-upstream origin "$release_pr_branch"
+
+      - name: Create release pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          release_pr_branch="release/$RELEASE_VERSION"
+          body_file="$RUNNER_TEMP/release-pr.md"
+
+          {
+            echo "## Release $RELEASE_VERSION"
+            echo
+            echo "Updates the integration manifest to ${RELEASE_VERSION#v}."
+            echo
+            echo "Merging this pull request will create the $RELEASE_VERSION tag and a draft GitHub release."
+          } > "$body_file"
+
+          gh pr create \
+            --base "$RELEASE_BRANCH" \
+            --head "$release_pr_branch" \
+            --title "Release $RELEASE_VERSION" \
+            --body-file "$body_file"
+
+  publish:
+    name: Publish merged release PR
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'release/v')
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: publish-release-${{ github.event.pull_request.base.ref }}
+      cancel-in-progress: false
+    env:
+      MERGED_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+      RELEASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+      RELEASE_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      RELEASE_PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+
+    steps:
+      - name: Generate release App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - name: Check out merged release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Validate merged release
+        id: release
+        shell: bash
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          release_version="${RELEASE_PR_BRANCH#release/}"
+          manifest_version="$(jq --raw-output '.version' custom_components/bosch_easyair/manifest.json)"
+
+          if [[ "$RELEASE_PR_AUTHOR" != "${APP_SLUG}[bot]" ]]; then
+            echo "::error::Release PR was created by $RELEASE_PR_AUTHOR, not ${APP_SLUG}[bot]."
+            exit 1
+          fi
+
+          if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release PR branch must use the format release/vX.Y.Z."
+            exit 1
+          fi
+
+          if [[ "$manifest_version" != "${release_version#v}" ]]; then
+            echo "::error::Manifest version $manifest_version does not match $release_version."
+            exit 1
+          fi
+
+          if ! git check-ref-format --branch "$RELEASE_BRANCH" > /dev/null; then
+            echo "::error::$RELEASE_BRANCH is not a valid branch name."
+            exit 1
+          fi
+
+          git fetch origin \
+            "refs/heads/$RELEASE_BRANCH:refs/remotes/origin/$RELEASE_BRANCH"
+          if ! git merge-base --is-ancestor "$MERGED_COMMIT" "refs/remotes/origin/$RELEASE_BRANCH"; then
+            echo "::error::Merged commit is not present on $RELEASE_BRANCH."
+            exit 1
+          fi
+
+          echo "version=$release_version" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          target_commit="$(git rev-parse HEAD)"
+          git fetch --force --tags origin
+
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_VERSION"; then
+            tagged_commit="$(git rev-parse "refs/tags/$RELEASE_VERSION^{commit}")"
+            if [[ "$tagged_commit" != "$target_commit" ]]; then
+              echo "::error::Tag $RELEASE_VERSION already points to a different commit."
+              exit 1
+            fi
+            echo "Tag $RELEASE_VERSION already points to the merged release commit."
+          else
+            git tag "$RELEASE_VERSION"
+            git push origin "refs/tags/$RELEASE_VERSION"
+          fi
+
+      - name: Build release notes
+        id: release_notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          pull_requests_file="$RUNNER_TEMP/pull-requests.jsonl"
+          : > "$pull_requests_file"
+
+          previous_tag=""
+          if previous_tag="$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/releases/latest" \
+            --jq '.tag_name' 2>/dev/null)"; then
+            if previous_commit="$(git rev-parse --verify "refs/tags/$previous_tag^{commit}" 2>/dev/null)"; then
+              commit_range="$previous_commit..HEAD"
+            else
+              echo "::warning::The latest release tag ($previous_tag) was not found locally; checking the full branch history."
+              commit_range="HEAD"
+            fi
+          else
+            echo "No previous published release found; checking the full branch history."
+            commit_range="HEAD"
+          fi
+
+          while IFS= read -r commit_sha; do
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/commits/$commit_sha/pulls" \
+              --jq '.[] | select(.merged_at != null) | {number, title, html_url, merged_at}' \
+              >> "$pull_requests_file"
+          done < <(git rev-list --reverse "$commit_range")
+
+          {
+            echo "## What's Changed"
+            echo
+            jq --raw-output --slurp \
+              'unique_by(.number) | sort_by(.merged_at)[] | "- [#\(.number)](\(.html_url)) \(.title)"' \
+              "$pull_requests_file"
+            echo
+            echo "**Full Changelog**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION"
+          } > "$notes_file"
+
+          echo "file=$notes_file" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            --draft \
+            --verify-tag \
+            --title "$RELEASE_VERSION" \
+            --notes-file "${{ steps.release_notes.outputs.file }}"
