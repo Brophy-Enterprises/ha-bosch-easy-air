@@ -285,10 +285,10 @@ class EasyAirClient:
             },
         )
 
-    async def async_set_hvac_mode(self, device_id: str, hvac_mode: str) -> None:
-        """Set thermostat HVAC mode."""
+    async def async_set_hvac_mode(self, device_id: str, hvac_mode: str) -> str:
+        """Set thermostat HVAC mode and return the mode the API applied."""
         mode = HVAC_MODE_TO_BCC[hvac_mode]
-        await self._request(
+        payload = await self._request(
             "POST",
             "/control/change_mode",
             json={
@@ -300,6 +300,20 @@ class EasyAirClient:
                 "timestamp": _timestamp_ms(),
             },
         )
+        if isinstance(payload, Mapping):
+            confirmed_mode = BCC_TO_HVAC_MODE.get(
+                _as_string(payload.get("mode")) or ""
+            )
+            if confirmed_mode is not None:
+                return confirmed_mode
+
+        # Some successful API responses may be empty. In that case the
+        # accepted request remains the best available state until the next
+        # regular poll.
+        _LOGGER.debug(
+            "Mode response for %s did not include a recognized mode", device_id
+        )
+        return hvac_mode
 
     async def async_set_fan(self, device_id: str, enabled: bool) -> None:
         """Set thermostat fan circulation."""
