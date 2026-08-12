@@ -25,6 +25,30 @@ class RecordingEasyAirClient(EasyAirClient):
         return self.response
 
 
+class PollingEasyAirClient(EasyAirClient):
+    """Return controlled device-list and status payloads across polls."""
+
+    def __init__(self) -> None:
+        """Initialize without a real HTTP session."""
+        self._temperature_units = {}
+        self.device: dict[str, Any] = {
+            "gatewayId": "001122aabbcc",
+            "tempUnit": "F",
+            "mode": "1",
+            "temp": "75.0-65.0",
+            "room_temp": "70.0",
+        }
+        self.status: dict[str, Any] = {"tempUnit": None}
+
+    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        """Return the current device-list payload."""
+        return {"data": [self.device]}
+
+    async def async_get_status(self, device_id: str) -> Any:
+        """Return the current status payload."""
+        return self.status
+
+
 def _thermostat() -> EasyAirThermostat:
     """Return a thermostat state suitable for a setpoint write."""
     return EasyAirThermostat(
@@ -80,6 +104,34 @@ class SetTemperatureTest(IsolatedAsyncioTestCase):
                     }
                 },
             ),
+        )
+
+
+class TemperatureUnitTest(IsolatedAsyncioTestCase):
+    """Verify incomplete polls cannot change a thermostat's native unit."""
+
+    async def test_missing_status_unit_preserves_fahrenheit(self) -> None:
+        """Retain the list or last-known unit when status omits its unit."""
+        client = PollingEasyAirClient()
+
+        first = (await client.async_get_thermostats())[0]
+        self.assertEqual(first.temperature_unit, UnitOfTemperature.FAHRENHEIT)
+
+        client.device = {
+            key: value for key, value in client.device.items() if key != "tempUnit"
+        }
+        second = (await client.async_get_thermostats())[0]
+        self.assertEqual(second.temperature_unit, UnitOfTemperature.FAHRENHEIT)
+
+    async def test_initial_unit_is_inferred_from_fahrenheit_values(self) -> None:
+        """Do not default an unmistakably Fahrenheit payload to Celsius."""
+        client = PollingEasyAirClient()
+        client.device.pop("tempUnit")
+
+        thermostat = (await client.async_get_thermostats())[0]
+
+        self.assertEqual(
+            thermostat.temperature_unit, UnitOfTemperature.FAHRENHEIT
         )
 
 
