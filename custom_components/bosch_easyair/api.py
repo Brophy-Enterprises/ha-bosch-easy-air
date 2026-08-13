@@ -49,6 +49,10 @@ _TEMP_PAIR_RE = re.compile(
     r"^\s*(?P<cool>[+-]?\d+(?:\.\d+)?)\s*-\s*(?P<heat>[+-]?\d+(?:\.\d+)?)\s*$"
 )
 
+# Ceiling value for a "reasonable" Celsius temp. Anything higher than this
+# _must_ be intended to be Fahrenheit 
+_CELSIUS_CEILING = 35
+
 # Keys we know how to read out of a /control/status payload. Used to detect a
 # response shape we did not expect (e.g. a {"data": {...}} envelope).
 _STATUS_FIELDS = frozenset(
@@ -156,6 +160,7 @@ class EasyAirClient:
         self._auth_base_url = auth_base_url.rstrip("/") + "/"
         self._language_tag = language_tag
         self._refresh_lock = asyncio.Lock()
+        self._temperature_units: dict[str, UnitOfTemperature] = {}
 
     async def async_get_thermostats(self) -> list[EasyAirThermostat]:
         """Return BCC thermostats visible to the configured EasyAir account."""
@@ -171,6 +176,7 @@ class EasyAirClient:
                 continue
 
             raw = dict(device)
+            listed_temperature_unit = _explicit_temperature_unit(raw)
             try:
                 status = await self.async_get_status(device_id)
             except EasyAirError as err:
@@ -185,7 +191,15 @@ class EasyAirClient:
                         "Ignoring non-mapping status for %s: %r", device_id, status
                     )
 
-            thermostats.append(_parse_thermostat(raw))
+            thermostat = _parse_thermostat(
+                raw,
+                fallback_temperature_unit=(
+                    listed_temperature_unit
+                    or self._temperature_units.get(device_id)
+                ),
+            )
+            self._temperature_units[device_id] = thermostat.temperature_unit
+            thermostats.append(thermostat)
 
         _LOGGER.debug("Parsed %s EasyAir thermostat(s)", len(thermostats))
         return thermostats
@@ -558,7 +572,11 @@ def account_id_from_token(token: str | None) -> str | None:
     return _as_string(claims.get("sub"))
 
 
-def _parse_thermostat(raw: Mapping[str, Any]) -> EasyAirThermostat:
+def _parse_thermostat(
+    raw: Mapping[str, Any],
+    *,
+    fallback_temperature_unit: UnitOfTemperature | None = None,
+) -> EasyAirThermostat:
     """Normalize a BCC thermostat object."""
     device_id = _as_string(raw.get("device_id")) or _as_string(raw.get("gatewayId"))
     if not device_id:
@@ -592,7 +610,7 @@ def _parse_thermostat(raw: Mapping[str, Any]) -> EasyAirThermostat:
         min_temperature=None,
         max_temperature=None,
         humidity=_as_int(raw.get("humidity")),
-        temperature_unit=_temperature_unit(raw),
+        temperature_unit=_temperature_unit(raw, fallback_temperature_unit),
         hvac_mode=current_mode,
         hvac_action=_hvac_action(raw, current_mode),
         available_modes=["off", "cool", "heat", "auto"],
@@ -646,10 +664,45 @@ def _format_temp(setpoint: float) -> str:
     return f"{setpoint:.1f}"
 
 
-def _temperature_unit(raw: Mapping[str, Any]) -> UnitOfTemperature:
-    """Normalize a temperature unit."""
+def _explicit_temperature_unit(
+    raw: Mapping[str, Any],
+) -> UnitOfTemperature | None:
+    """Return a temperature unit only when the payload explicitly supplies one."""
     unit = _as_string(raw.get("temp_unit") or raw.get("tempUnit"))
-    if unit and unit.upper() in ("F", "FAHRENHEIT", "°F"):
+    if unit is None:
+        return None
+    normalized = unit.upper()
+    if normalized in ("F", "FAHRENHEIT", "°F"):
+        return UnitOfTemperature.FAHRENHEIT
+    if normalized in ("C", "CELSIUS", "°C"):
+        return UnitOfTemperature.CELSIUS
+    _LOGGER.debug("Ignoring unrecognized BCC temperature unit %r", unit)
+    return None
+
+
+def _temperature_unit(
+    raw: Mapping[str, Any],
+    fallback: UnitOfTemperature | None = None,
+) -> UnitOfTemperature:
+    """Normalize a temperature unit without silently changing known units."""
+    if unit := _explicit_temperature_unit(raw):
+        return unit
+    if fallback is not None:
+        return fallback
+
+    # Some BCC payloads omit tempUnit entirely. Values above the Celsius
+    # capability ceiling are unambiguously Fahrenheit and are safer evidence
+    # than the old unconditional Celsius default.
+    cool_setpoint, heat_setpoint = _split_temp_pair(raw.get("temp"))
+    temperatures = (
+        _first_float(raw.get("room_temp"), raw.get("roomTemp")),
+        cool_setpoint,
+        heat_setpoint,
+    )
+    if any(
+        temperature is not None and temperature > _CELSIUS_CEILING
+        for temperature in temperatures
+    ):
         return UnitOfTemperature.FAHRENHEIT
     return UnitOfTemperature.CELSIUS
 
