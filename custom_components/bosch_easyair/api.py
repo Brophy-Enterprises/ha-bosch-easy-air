@@ -5,12 +5,12 @@ import asyncio
 import base64
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from json import loads as json_loads
+from json import dumps as json_dumps, loads as json_loads
 import logging
 import re
 import time
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
 from homeassistant.const import UnitOfTemperature
@@ -41,6 +41,51 @@ OAUTH_AUTH_ERROR_CODES = frozenset(
         "unauthorized_client",
         "unsupported_grant_type",
     }
+)
+
+REDACTED = "<redacted>"
+SENSITIVE_RESPONSE_KEYS = frozenset(
+    {
+        "accesstoken",
+        "accountid",
+        "apikey",
+        "authorization",
+        "authorizationcode",
+        "clientsecret",
+        "codeverifier",
+        "cookie",
+        "deviceid",
+        "email",
+        "errordescription",
+        "gatewayid",
+        "idtoken",
+        "password",
+        "phone",
+        "refreshtoken",
+        "secret",
+        "serialnumber",
+        "session",
+        "sessionid",
+        "token",
+        "userid",
+        "username",
+    }
+)
+_SENSITIVE_TEXT_VALUE_RE = re.compile(
+    r"(?i)\b(access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|"
+    r"authorization|authorization[_-]?code|client[_-]?secret|password|secret|"
+    r"code[_-]?verifier|device[_-]?id|gateway[_-]?id|serial[_-]?number|"
+    r"account[_-]?id|user[_-]?id|username|email|phone|cookie|session[_-]?id)"
+    r"\b(\s*[:=]\s*)([^\s,;&]+)"
+)
+_BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[^\s,;&]+")
+_JWT_RE = re.compile(
+    r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"
+)
+_EMAIL_RE = re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
+_DEVICE_IDENTIFIER_RE = re.compile(
+    r"(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|"
+    r"\b(?=[0-9a-f]{12}\b)(?=[0-9a-f]*[a-f])[0-9a-f]{12}\b"
 )
 
 # Setpoint pairs arrive as "<cool>-<heat>"; both halves may be negative, so the
@@ -425,9 +470,14 @@ class EasyAirClient:
         except EasyAirError:
             raise
         except asyncio.TimeoutError as err:
-            raise EasyAirConnectionError("Timed out connecting to EasyAir") from err
+            raise EasyAirConnectionError(
+                f"EasyAir {_request_label(method, path)} timed out"
+            ) from err
         except ClientError as err:
-            raise EasyAirConnectionError(f"Error connecting to EasyAir: {err}") from err
+            raise EasyAirConnectionError(
+                f"EasyAir {_request_label(method, path)} failed "
+                f"({type(err).__name__})"
+            ) from None
 
     async def _handle_response(
         self,
@@ -461,19 +511,23 @@ class EasyAirClient:
                     retry_auth=False,
                     token_request=token_request,
                 )
-            raise EasyAirAuthError("EasyAir rejected the configured access token")
+            raise EasyAirAuthError(
+                f"EasyAir {_request_label(method, path)} rejected authentication"
+            )
         if response.status >= 400:
             body = await response.text()
             raise EasyAirConnectionError(
-                f"EasyAir request failed with HTTP {response.status}: {body[:200]}"
+                f"EasyAir {_request_label(method, path)} failed with "
+                f"HTTP {response.status}: {_safe_response_excerpt(body)}"
             )
         if response.status == 204:
             return None
         content_type = response.headers.get("Content-Type", "")
         if "json" not in content_type:
-            text = await response.text()
+            body = await response.text()
             raise EasyAirConnectionError(
-                f"EasyAir returned a non-JSON response: {text[:200]}"
+                f"EasyAir {_request_label(method, path)} returned a non-JSON "
+                f"response: {_safe_response_excerpt(body)}"
             )
         return await response.json()
 
@@ -510,10 +564,13 @@ async def _token_endpoint_error(response: ClientResponse) -> EasyAirError:
     if isinstance(payload, Mapping):
         error_code = (_as_string(payload.get("error")) or "").lower() or None
 
-    message = "EasyAir token request failed with HTTP {}{}: {}".format(
+    safe_error_code = (
+        error_code if error_code in OAUTH_AUTH_ERROR_CODES else None
+    )
+    message = "EasyAir POST /oauth2/token failed with HTTP {}{}: {}".format(
         response.status,
-        f" ({error_code})" if error_code else "",
-        body[:200],
+        f" ({safe_error_code})" if safe_error_code else "",
+        _safe_response_excerpt(body),
     )
 
     # Rate limiting and server faults are transient; retrying is correct there.
@@ -775,6 +832,58 @@ def _as_int(value: Any) -> int | None:
 def _normalize_path(path: str) -> str:
     """Return an absolute API path."""
     return path if path.startswith("/") else f"/{path}"
+
+
+def _request_label(method: str, path: str) -> str:
+    """Return a safe request label without query parameters or credentials."""
+    return f"{method.upper()} {_normalize_path(urlsplit(path).path)}"
+
+
+def _safe_response_excerpt(body: str, limit: int = 500) -> str:
+    """Return a bounded response body with sensitive JSON fields redacted."""
+    try:
+        payload = json_loads(body)
+    except ValueError:
+        excerpt = _redact_sensitive_text(body)
+    else:
+        excerpt = json_dumps(
+            _redact_response_value(payload),
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+    return excerpt[:limit]
+
+
+def _redact_response_value(value: Any) -> Any:
+    """Recursively redact values belonging to sensitive response keys."""
+    if isinstance(value, Mapping):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            normalized_key = re.sub(r"[^a-z0-9]", "", key_text.lower())
+            redacted[key_text] = (
+                REDACTED
+                if normalized_key in SENSITIVE_RESPONSE_KEYS
+                else _redact_response_value(item)
+            )
+        return redacted
+    if isinstance(value, list):
+        return [_redact_response_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_sensitive_text(value)
+    return value
+
+
+def _redact_sensitive_text(value: str) -> str:
+    """Redact recognizable credentials and identifiers in free-form text."""
+    value = _BEARER_TOKEN_RE.sub(f"Bearer {REDACTED}", value)
+    value = _JWT_RE.sub(REDACTED, value)
+    value = _EMAIL_RE.sub(REDACTED, value)
+    value = _DEVICE_IDENTIFIER_RE.sub(REDACTED, value)
+    return _SENSITIVE_TEXT_VALUE_RE.sub(
+        lambda match: f"{match[1]}{match[2]}{REDACTED}",
+        value,
+    )
 
 
 def _timestamp_ms() -> str:

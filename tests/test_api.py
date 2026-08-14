@@ -8,7 +8,33 @@ from unittest.mock import patch
 
 from homeassistant.const import UnitOfTemperature
 
-from custom_components.bosch_easyair.api import EasyAirClient, EasyAirThermostat
+from custom_components.bosch_easyair.api import (
+    EasyAirClient,
+    EasyAirConnectionError,
+    EasyAirThermostat,
+    _token_endpoint_error,
+)
+
+SECRET = "secret-access-token-or-device-id"
+
+
+class FakeResponse:
+    """Provide the response attributes used by the API client."""
+
+    def __init__(
+        self,
+        status: int,
+        body: str,
+        content_type: str = "application/json",
+    ) -> None:
+        """Initialize a fake response."""
+        self.status = status
+        self.body = body
+        self.headers = {"Content-Type": content_type}
+
+    async def text(self) -> str:
+        """Return the configured response body."""
+        return self.body
 
 
 class RecordingEasyAirClient(EasyAirClient):
@@ -133,6 +159,91 @@ class TemperatureUnitTest(IsolatedAsyncioTestCase):
         self.assertEqual(
             thermostat.temperature_unit, UnitOfTemperature.FAHRENHEIT
         )
+
+
+class RequestErrorTest(IsolatedAsyncioTestCase):
+    """Verify request failures are useful without exposing sensitive data."""
+
+    async def test_http_error_includes_sanitized_response_body(self) -> None:
+        """Include useful response details while redacting secret values."""
+        client = object.__new__(EasyAirClient)
+        client._refresh_token = None
+        response = FakeResponse(
+            500,
+            '{"message":"Internal server error","code":5001,'
+            f'"device_id":"{SECRET}","access_token":"{SECRET}"}}',
+        )
+
+        with self.assertRaises(EasyAirConnectionError) as raised:
+            await client._handle_response(
+                response,
+                "GET",
+                f"/device/list?device_id={SECRET}",
+                auth=True,
+                base_url=None,
+                form=None,
+                json={"access_token": SECRET},
+                params={"device_id": SECRET},
+                retry_auth=False,
+                token_request=False,
+                request_token=SECRET,
+            )
+
+        self.assertEqual(
+            str(raised.exception),
+            "EasyAir GET /device/list failed with HTTP 500: "
+            '{"message":"Internal server error","code":5001,'
+            '"device_id":"<redacted>","access_token":"<redacted>"}',
+        )
+        self.assertNotIn(SECRET, str(raised.exception))
+
+    async def test_token_error_redacts_response_description(self) -> None:
+        """Expose the OAuth error while redacting its response description."""
+        response = FakeResponse(
+            400,
+            f'{{"error":"invalid_grant","error_description":"{SECRET}"}}',
+        )
+
+        error = await _token_endpoint_error(response)
+
+        self.assertEqual(
+            str(error),
+            "EasyAir POST /oauth2/token failed with HTTP 400 (invalid_grant): "
+            '{"error":"invalid_grant","error_description":"<redacted>"}',
+        )
+        self.assertNotIn(SECRET, str(error))
+
+    async def test_non_json_error_body_is_retained_and_sanitized(self) -> None:
+        """Keep free-form diagnostics while removing recognizable credentials."""
+        client = object.__new__(EasyAirClient)
+        client._refresh_token = None
+        response = FakeResponse(
+            502,
+            f"device 001122aabbcc failed at 123456789012; access_token={SECRET}",
+            content_type="text/plain",
+        )
+
+        with self.assertRaises(EasyAirConnectionError) as raised:
+            await client._handle_response(
+                response,
+                "GET",
+                "/device/list",
+                auth=True,
+                base_url=None,
+                form=None,
+                json=None,
+                params=None,
+                retry_auth=False,
+                token_request=False,
+                request_token=SECRET,
+            )
+
+        self.assertEqual(
+            str(raised.exception),
+            "EasyAir GET /device/list failed with HTTP 502: "
+            "device <redacted> failed at 123456789012; access_token=<redacted>",
+        )
+        self.assertNotIn(SECRET, str(raised.exception))
 
 
 class SetHvacModeTest(IsolatedAsyncioTestCase):
