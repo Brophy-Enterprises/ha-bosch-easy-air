@@ -52,7 +52,6 @@ SENSITIVE_RESPONSE_KEYS = frozenset(
         "authorization",
         "authorizationcode",
         "clientsecret",
-        "code",
         "codeverifier",
         "cookie",
         "deviceid",
@@ -85,7 +84,8 @@ _JWT_RE = re.compile(
 )
 _EMAIL_RE = re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
 _DEVICE_IDENTIFIER_RE = re.compile(
-    r"(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|\b[0-9a-f]{12}\b"
+    r"(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|"
+    r"\b(?=[0-9a-f]{12}\b)(?=[0-9a-f]*[a-f])[0-9a-f]{12}\b"
 )
 
 # Setpoint pairs arrive as "<cool>-<heat>"; both halves may be negative, so the

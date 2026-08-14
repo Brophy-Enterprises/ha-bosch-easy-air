@@ -170,7 +170,7 @@ class RequestErrorTest(IsolatedAsyncioTestCase):
         client._refresh_token = None
         response = FakeResponse(
             500,
-            '{"message":"Internal server error",'
+            '{"message":"Internal server error","code":5001,'
             f'"device_id":"{SECRET}","access_token":"{SECRET}"}}',
         )
 
@@ -192,7 +192,7 @@ class RequestErrorTest(IsolatedAsyncioTestCase):
         self.assertEqual(
             str(raised.exception),
             "EasyAir GET /device/list failed with HTTP 500: "
-            '{"message":"Internal server error",'
+            '{"message":"Internal server error","code":5001,'
             '"device_id":"<redacted>","access_token":"<redacted>"}',
         )
         self.assertNotIn(SECRET, str(raised.exception))
@@ -219,7 +219,7 @@ class RequestErrorTest(IsolatedAsyncioTestCase):
         client._refresh_token = None
         response = FakeResponse(
             502,
-            f"device 00:11:22:aa:bb:cc failed; access_token={SECRET}",
+            f"device 001122aabbcc failed at 123456789012; access_token={SECRET}",
             content_type="text/plain",
         )
 
@@ -241,7 +241,7 @@ class RequestErrorTest(IsolatedAsyncioTestCase):
         self.assertEqual(
             str(raised.exception),
             "EasyAir GET /device/list failed with HTTP 502: "
-            "device <redacted> failed; access_token=<redacted>",
+            "device <redacted> failed at 123456789012; access_token=<redacted>",
         )
         self.assertNotIn(SECRET, str(raised.exception))
 
