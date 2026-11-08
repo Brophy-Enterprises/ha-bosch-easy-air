@@ -82,6 +82,26 @@ class BoschEasyAirDataUpdateCoordinator(
         # directly; the regular poll remains responsible for later changes.
         self.async_set_updated_data(updated)
 
+    async def async_set_fan(self, device_id: str, enabled: bool) -> None:
+        """Set fan circulation and publish the accepted change.
+
+        Mirrors ``async_set_hvac_mode``: the accepted setting is published
+        straight away rather than requesting an immediate poll, because a poll
+        that lands before the cloud reflects the write would flip the switch
+        back to its old state for one cycle.
+        """
+        await self.client.async_set_fan(device_id, enabled)
+        if (current := self.data.get(device_id)) is None:
+            return
+
+        updated = dict(self.data)
+        updated[device_id] = replace(
+            current,
+            fan_on=enabled,
+            raw={**current.raw, "fanstatus": "1" if enabled else "0"},
+        )
+        self.async_set_updated_data(updated)
+
 
 def _with_hvac_mode(
     thermostat: EasyAirThermostat, hvac_mode: str

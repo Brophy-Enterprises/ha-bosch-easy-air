@@ -181,6 +181,11 @@ class EasyAirThermostat:
     hvac_action: str | None
     available_modes: list[str]
     raw: Mapping[str, Any]
+    # Defaulted fields sit after ``raw`` so existing keyword constructions keep
+    # working; they are populated by ``_parse_thermostat`` like the rest.
+    fan_on: bool | None = None
+    stage: str | None = None
+    power: str | None = None
 
 
 class EasyAirClient:
@@ -672,6 +677,9 @@ def _parse_thermostat(
         hvac_action=_hvac_action(raw, current_mode),
         available_modes=["off", "cool", "heat", "auto"],
         raw=raw,
+        fan_on=_fan_on(raw),
+        stage=_as_string(raw.get("stage")),
+        power=_as_string(raw.get("power")),
     )
 
 
@@ -790,6 +798,23 @@ def _hvac_action(raw: Mapping[str, Any], hvac_mode: str | None) -> str | None:
     fan_status = _as_string(raw.get("fanstatus"))
     if fan_status == "1":
         return "fan"
+    return None
+
+
+def _fan_on(raw: Mapping[str, Any]) -> bool | None:
+    """Return the fan-circulation setting carried by ``fanstatus``.
+
+    ``/control/fan`` writes ``fan`` as ``"1"``/``"0"`` and ``fanstatus`` is the
+    only fan field the status payload returns, so it is read as the mirror of
+    that setting (``1`` = fan on/circulate, ``0`` = auto). ``None`` means the
+    payload did not include the field, which keeps the switch from reporting
+    a state it has no evidence for.
+    """
+    fan_status = _as_string(raw.get("fanstatus"))
+    if fan_status == "1":
+        return True
+    if fan_status == "0":
+        return False
     return None
 
 

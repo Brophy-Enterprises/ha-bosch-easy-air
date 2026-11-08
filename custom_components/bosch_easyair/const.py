@@ -26,7 +26,7 @@ EASYAIR_USER_AGENT = "IDSMobileApp/13 CFNetwork/3860.600.12 Darwin/25.5.0"
 MANUFACTURER = "Bosch"
 MODEL_BCC110 = "BCC110"
 
-PLATFORMS = [Platform.CLIMATE]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.SWITCH]
 
 __all__ = [
     "CONF_ACCESS_TOKEN",

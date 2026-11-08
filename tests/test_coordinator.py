@@ -62,3 +62,40 @@ class SetHvacModeTest(IsolatedAsyncioTestCase):
         self.assertEqual(updated.hvac_action, "off")
         self.assertIsNone(updated.target_temperature)
         self.assertEqual(updated.raw["mode"], "0")
+
+
+class SetFanTest(IsolatedAsyncioTestCase):
+    """Verify fan writes publish optimistically instead of re-polling."""
+
+    async def test_successful_command_publishes_fan_state(self) -> None:
+        """Do not let an immediate stale poll flip the switch back."""
+        coordinator = object.__new__(BoschEasyAirDataUpdateCoordinator)
+        coordinator.client = Mock()
+        coordinator.client.async_set_fan = AsyncMock()
+        coordinator.data = {DEVICE_ID: _thermostat()}
+        coordinator.async_set_updated_data = Mock()
+        coordinator.async_request_refresh = AsyncMock()
+
+        await coordinator.async_set_fan(DEVICE_ID, True)
+
+        coordinator.client.async_set_fan.assert_awaited_once_with(DEVICE_ID, True)
+        coordinator.async_request_refresh.assert_not_awaited()
+        updated = coordinator.async_set_updated_data.call_args.args[0][DEVICE_ID]
+        self.assertTrue(updated.fan_on)
+        self.assertEqual(updated.raw["fanstatus"], "1")
+        # The rest of the thermostat state is carried over untouched.
+        self.assertEqual(updated.hvac_mode, "cool")
+        self.assertEqual(updated.raw["mode"], "1")
+
+    async def test_unknown_device_only_sends_command(self) -> None:
+        """A device missing from the last poll gets the write but no publish."""
+        coordinator = object.__new__(BoschEasyAirDataUpdateCoordinator)
+        coordinator.client = Mock()
+        coordinator.client.async_set_fan = AsyncMock()
+        coordinator.data = {}
+        coordinator.async_set_updated_data = Mock()
+
+        await coordinator.async_set_fan(DEVICE_ID, False)
+
+        coordinator.client.async_set_fan.assert_awaited_once_with(DEVICE_ID, False)
+        coordinator.async_set_updated_data.assert_not_called()

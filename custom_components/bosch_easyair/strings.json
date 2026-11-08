@@ -49,5 +49,23 @@
       "reauth_successful": "Re-authentication was successful",
       "wrong_account": "The re-authenticated account does not match the configured EasyAir account"
     }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "name": "Temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "stage": {
+        "name": "Stage"
+      }
+    },
+    "switch": {
+      "fan_circulation": {
+        "name": "Fan circulation"
+      }
+    }
   }
 }
