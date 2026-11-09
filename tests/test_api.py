@@ -246,6 +246,81 @@ class RequestErrorTest(IsolatedAsyncioTestCase):
         self.assertNotIn(SECRET, str(raised.exception))
 
 
+class SetFanTest(IsolatedAsyncioTestCase):
+    """Verify the captured fan-circulation contract."""
+
+    async def test_turn_on_sends_fan_one(self) -> None:
+        """Fan on is written as the string "1" with a timestamp."""
+        client = RecordingEasyAirClient()
+
+        with patch(
+            "custom_components.bosch_easyair.api._timestamp_ms",
+            return_value="1783835640000",
+        ):
+            await client.async_set_fan("001122aabbcc", True)
+
+        self.assertEqual(
+            client.request,
+            (
+                "POST",
+                "/control/fan",
+                {
+                    "json": {
+                        "device_id": "001122aabbcc",
+                        "fan": "1",
+                        "timestamp": "1783835640000",
+                    }
+                },
+            ),
+        )
+
+    async def test_turn_off_sends_fan_zero(self) -> None:
+        """Fan auto is written as the string "0"."""
+        client = RecordingEasyAirClient()
+
+        with patch(
+            "custom_components.bosch_easyair.api._timestamp_ms",
+            return_value="1783835640000",
+        ):
+            await client.async_set_fan("001122aabbcc", False)
+
+        self.assertEqual(client.request[2]["json"]["fan"], "0")
+
+
+class StatusFieldParsingTest(IsolatedAsyncioTestCase):
+    """Verify the status fields surfaced by the sensor and switch platforms."""
+
+    async def test_fan_stage_and_power_are_parsed_from_status(self) -> None:
+        """fanstatus, stage and power ride through to the thermostat state."""
+        client = PollingEasyAirClient()
+        client.status = {"fanstatus": "1", "stage": "2", "power": "1"}
+
+        thermostat = (await client.async_get_thermostats())[0]
+
+        self.assertTrue(thermostat.fan_on)
+        self.assertEqual(thermostat.stage, "2")
+        self.assertEqual(thermostat.power, "1")
+
+    async def test_fan_zero_is_off(self) -> None:
+        """fanstatus "0" is a known off state, not an unknown one."""
+        client = PollingEasyAirClient()
+        client.status = {"fanstatus": "0"}
+
+        thermostat = (await client.async_get_thermostats())[0]
+
+        self.assertFalse(thermostat.fan_on)
+
+    async def test_missing_fields_are_none(self) -> None:
+        """A payload without the fields yields unknown rather than a guess."""
+        client = PollingEasyAirClient()
+
+        thermostat = (await client.async_get_thermostats())[0]
+
+        self.assertIsNone(thermostat.fan_on)
+        self.assertIsNone(thermostat.stage)
+        self.assertIsNone(thermostat.power)
+
+
 class SetHvacModeTest(IsolatedAsyncioTestCase):
     """Verify the captured iOS change-mode contract."""
 

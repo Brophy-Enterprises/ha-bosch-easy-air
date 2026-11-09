@@ -19,9 +19,35 @@ Verified app targets:
 - iOS bundle: `com.bosch.tt.easyair`
 - Bosch product page: `https://www.bosch-homecomfort.com/us/en/ocs/residential/easyair-app-20386966-p/`
 
+## Entities
+
+Each thermostat on the account becomes one device with:
+
+| Entity | Reads | Writes |
+| --- | --- | --- |
+| `climate` | mode, action, current temperature, humidity, setpoints | mode, setpoints |
+| `sensor` Temperature | `room_temp` in the thermostat's own unit (device class `temperature`) | — |
+| `sensor` Humidity | `humidity` in % (device class `humidity`) | — |
+| `sensor` Stage | `stage` as reported, with `power` as an attribute | — |
+| `switch` Fan circulation | `fanstatus` (`1` = on) | `/control/fan` |
+
+Temperature and humidity are real sensors (not only climate attributes) so
+integrations that select inputs by sensor domain and device class — Thermal
+Comfort, the statistics helper, long-term statistics — can use them.
+
+The fan switch reads `fanstatus` as the mirror of the `fan` value written by
+`/control/fan`: on = continuous circulation, off = auto. If the status payload
+omits `fanstatus`, the switch reports unknown rather than guessing.
+
+`stage` and `power` are surfaced raw. The captures show `stage`/`power` non-zero
+when equipment is running (see `_hvac_action`), but their full vocabulary —
+compressor stage vs. aux/emergency heat — has not been confirmed, so no
+meaning is assigned yet.
+
 Current state:
 
-- Home Assistant config flow, coordinator, and climate entity are scaffolded.
+- Home Assistant config flow, coordinator, climate, sensor and switch
+  platforms are implemented.
 - The cloud client uses the captured EasyAir/BCC API hosts and endpoints.
 - Browser-based SingleKey sign-in is supported with a manual final redirect
   paste-back step. The mobile app's registered OAuth redirect URI is
@@ -57,7 +83,7 @@ Captured cloud contract:
 - Detailed thermostat status: `GET /control/status?device_id=<gatewayId>&timestamp=<ms>`
 - Set temperature: `POST /control/temp`
 - Change mode: `POST /control/change_mode`
-- Fan circulation: `POST /control/fan`
+- Fan circulation: `POST /control/fan` with `fan` as `"1"`/`"0"`
 
 BCC110 notes from captured traffic:
 

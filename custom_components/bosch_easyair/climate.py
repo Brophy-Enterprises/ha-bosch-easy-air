@@ -1,8 +1,6 @@
 """Climate platform for Bosch EasyAir."""
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from functools import wraps
 from typing import Any
 
 from homeassistant.components.climate import ClimateEntity
@@ -15,15 +13,11 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import EasyAirError, EasyAirInvalidInputError, EasyAirThermostat
-from .const import DOMAIN, MANUFACTURER, MODEL_BCC110
 from .coordinator import BoschEasyAirDataUpdateCoordinator
+from .entity import BoschEasyAirEntity, translate_api_errors
 
 MODE_TO_HA = {
     "off": HVACMode.OFF,
@@ -42,29 +36,6 @@ ACTION_TO_HA = {
 }
 
 
-def _translate_api_errors(
-    func: Callable[..., Awaitable[None]],
-) -> Callable[..., Awaitable[None]]:
-    """Re-raise API failures as the errors Home Assistant knows how to show.
-
-    ``EasyAirError`` is not a ``HomeAssistantError``, so without this it
-    escapes the service call unhandled: the user sees "Unknown error" and the
-    log gets a traceback instead of the message the API layer wrote.
-    """
-
-    @wraps(func)
-    async def wrapper(*args: Any, **kwargs: Any) -> None:
-        try:
-            await func(*args, **kwargs)
-        except EasyAirInvalidInputError as err:
-            # The request itself was wrong, so retrying it verbatim cannot help.
-            raise ServiceValidationError(str(err)) from err
-        except EasyAirError as err:
-            raise HomeAssistantError(str(err)) from err
-
-    return wrapper
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -78,57 +49,10 @@ async def async_setup_entry(
     )
 
 
-class BoschEasyAirClimate(
-    CoordinatorEntity[BoschEasyAirDataUpdateCoordinator], ClimateEntity
-):
+class BoschEasyAirClimate(BoschEasyAirEntity, ClimateEntity):
     """Representation of a Bosch EasyAir thermostat."""
 
-    _attr_has_entity_name = True
     _attr_name = None
-
-    def __init__(
-        self, coordinator: BoschEasyAirDataUpdateCoordinator, device_id: str
-    ) -> None:
-        """Initialize the climate entity."""
-        super().__init__(coordinator)
-        self._device_id = device_id
-        self._attr_unique_id = f"{DOMAIN}_{device_id}"
-        self._last_device = coordinator.data[device_id]
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Cache the newest thermostat state, then write the entity state."""
-        if (device := self.coordinator.data.get(self._device_id)) is not None:
-            self._last_device = device
-        super()._handle_coordinator_update()
-
-    @property
-    def _device(self) -> EasyAirThermostat:
-        """Return the newest thermostat state, falling back to the cache.
-
-        The cache keeps state writes from crashing if the thermostat
-        temporarily drops out of the cloud device list.
-        """
-        device = self.coordinator.data.get(self._device_id)
-        return device if device is not None else self._last_device
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device registry information."""
-        device = self._device
-        return DeviceInfo(
-            identifiers={(DOMAIN, device.serial_number or device.id)},
-            manufacturer=MANUFACTURER,
-            model=device.model or MODEL_BCC110,
-            name=device.name,
-            serial_number=device.serial_number,
-            sw_version=device.firmware_version,
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return whether the entity is available."""
-        return super().available and self._device_id in self.coordinator.data
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -223,7 +147,7 @@ class BoschEasyAirClimate(
         """Return the current HVAC action."""
         return ACTION_TO_HA.get(self._device.hvac_action or "")
 
-    @_translate_api_errors
+    @translate_api_errors
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""
         await self.coordinator.async_set_temperature(
@@ -233,7 +157,7 @@ class BoschEasyAirClimate(
             target_temperature_high=kwargs.get(ATTR_TARGET_TEMP_HIGH),
         )
 
-    @_translate_api_errors
+    @translate_api_errors
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode."""
         await self.coordinator.async_set_hvac_mode(
